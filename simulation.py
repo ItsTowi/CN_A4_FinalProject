@@ -46,7 +46,7 @@ try:
     from community import best_partition as _louvain_partition
     from community import modularity     as _louvain_modularity
     _LOUVAIN = True
-except (ImportError, AttributeError):
+except ImportError:
     _LOUVAIN = False
 
 
