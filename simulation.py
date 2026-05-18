@@ -213,6 +213,11 @@ def run_simulation(
     p_rewire            = 0.05,
     rewire_steps        = 60,
     hk_steps_per_rewire = 5,
+    # --- Repair / depolarization phase ---
+    repair              = False,
+    repair_strategy     = None,
+    repair_steps        = 60,
+    hk_steps_per_repair = 5,
     # --- HK convergence ---
     max_hk_steps        = 500,
     tol                 = 1e-6,
@@ -249,8 +254,26 @@ def run_simulation(
 
     hk_steps_per_rewire : int
         HK steps applied after each rewiring round (default 5).
-        Allows opinions to partially adjust to the new network structure
-        before the next rewiring round.
+
+    repair : bool
+        If True, run the depolarization phase after rewiring (default False).
+        Requires ``repair_strategy`` to be set.
+
+    repair_strategy : BaseRepairStrategy or None
+        An instance of a repair strategy (subclass of BaseRepairStrategy).
+        Only used when ``repair=True``.
+
+        Example:
+            from repair import MediatorStrategy
+            strategy = MediatorStrategy(n_mediators=5)
+            result = run_simulation(G, ..., repair=True,
+                                    repair_strategy=strategy)
+
+    repair_steps : int
+        Number of repair rounds (default 60).
+
+    hk_steps_per_repair : int
+        HK steps applied after each repair round (default 5).
 
     max_hk_steps : int
         Maximum HK steps in the burn-in phase.
@@ -284,6 +307,14 @@ def run_simulation(
     >>> result = run_simulation(G, epsilon=0.25, rewire=True,
     ...                         p_rewire=0.05, rewire_steps=80)
 
+    Full pipeline (burn-in + rewiring + repair):
+    >>> from repair import MediatorStrategy
+    >>> result = run_simulation(
+    ...     G, epsilon=0.15, rewire=True, p_rewire=0.15, rewire_steps=120,
+    ...     repair=True, repair_strategy=MediatorStrategy(n_mediators=5),
+    ...     repair_steps=60,
+    ... )
+
     Exploring epsilon:
     >>> for eps in [0.1, 0.2, 0.3, 0.4]:
     ...     result = run_simulation(G, epsilon=eps, rewire=False)
@@ -306,6 +337,29 @@ def run_simulation(
         )
         phases.append(phase2)
 
+    # ---- Phase 3: Repair / depolarization --------------------------------
+    if repair:
+        if repair_strategy is None:
+            raise ValueError(
+                "repair=True requires a repair_strategy. "
+                "Pass an instance of a BaseRepairStrategy subclass.\n"
+                "Example:\n"
+                "    from repair import MediatorStrategy\n"
+                "    repair_strategy=MediatorStrategy(n_mediators=5)"
+            )
+        # Lazy import to avoid circular dependency
+        from repair import run_repair_phase as _run_repair_phase
+        phase3 = _run_repair_phase(
+            G                   = G,
+            strategy            = repair_strategy,
+            epsilon             = epsilon,
+            repair_steps        = repair_steps,
+            hk_steps_per_repair = hk_steps_per_repair,
+            tol                 = tol,
+            seed                = seed,
+        )
+        phases.append(phase3)
+
     # ---- Aggregate all metrics into flat time-series ---------------------
     all_metrics = {}
     for phase in phases:
@@ -318,6 +372,9 @@ def run_simulation(
     snapshots.append(("after_burnin", phases[0]["history"][-1].copy()))
     if rewire and len(phases) >= 2:
         snapshots.append(("after_rewiring", phases[1]["history"][-1].copy()))
+    if repair:
+        # repair phase is always the last one
+        snapshots.append(("after_repair", phases[-1]["history"][-1].copy()))
 
     return {
         "G"        : G,
