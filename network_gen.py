@@ -86,27 +86,21 @@ def make_erdos_renyi(n=200, p=0.05, opinion="uniform",
                      opinion_kwargs=None, seed=None):
     """
     Erdos-Renyi G(n, p) random graph with opinion attributes.
-
-    Parameters
-    ----------
-    n : int
-        Number of nodes.
-    p : float
-        Edge probability.
-    opinion : str
-        One of {"uniform", "bimodal", "clustered"}.
-    opinion_kwargs : dict or None
-        Extra keyword arguments forwarded to the opinion initializer.
-    seed : int or None
-
-    Returns
-    -------
-    G : nx.Graph
+    Guarantees no isolated nodes by extracting the largest connected component.
     """
+    # 1. Generar el grafo original (puede traer nodos aislados por puro azar)
     G = nx.erdos_renyi_graph(n=n, p=p, seed=seed)
+    
+    # 2. FILTRAR NODOS AISLADOS: Extraer el componente gigante conectado
+    largest_cc = max(nx.connected_components(G), key=len)
+    G = G.subgraph(largest_cc).copy()  # Nos quedamos solo con la red principal unida
+    
+    # 3. Aplicar las opiniones sobre el grafo ya limpio
     _apply_opinion(G, opinion, opinion_kwargs, seed)
+    
     G.graph["model"] = "ER"
-    G.graph["params"] = {"n": n, "p": p}
+    G.graph["params"] = {"n": G.number_of_nodes(), "p": p} # Guardamos el 'n' real resultante
+    
     return G
 
 

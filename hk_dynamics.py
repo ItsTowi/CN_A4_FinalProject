@@ -169,6 +169,91 @@ def opinion_variance(opinions):
     """Global variance of the opinion distribution."""
     return float(np.var(opinions))
 
+def robust_polarization_index(opinions, tol=1e-3, min_size_pct=0.05):
+    """
+    Calcula el índice de polarización (varianza normalizada) basándose únicamente
+    en los clústeres robustos significativos. Elimina el ruido de los nodos congelados.
+    
+    Devuelve un float entre 0 y 1.
+    """
+    n_nodes = len(opinions)
+    min_nodes_required = max(1, int(n_nodes * min_size_pct))
+    
+    # 1. Identificar y etiquetar los clústeres (Misma lógica que n_robust_clusters)
+    sorted_indices = np.argsort(opinions)
+    sorted_op = opinions[sorted_indices]
+    gaps = np.diff(sorted_op)
+    
+    cluster_ids = np.zeros(n_nodes, dtype=int)
+    current_cluster = 0
+    for i, gap in enumerate(gaps):
+        if gap >= tol:
+            current_cluster += 1
+        cluster_ids[i+1] = current_cluster
+        
+    # 2. Contar el tamaño de cada clúster y calcular sus medias
+    unique_clusters, counts = np.unique(cluster_ids, return_counts=True)
+    
+    # Filtrar cuáles son los clústeres que superan la masa crítica
+    valid_clusters = unique_clusters[counts >= min_nodes_required]
+    
+    # Si la tolerancia aisló a todo el mundo (ej. epsilon=0) y ningún clúster es "grande",
+    # devolvemos la varianza normalizada estándar para no romper la gráfica.
+    if len(valid_clusters) == 0:
+        return float(np.var(opinions) / 0.25)
+        
+    # 3. Construir el nuevo vector de opiniones "limpio"
+    # Solo meteremos las opiniones promediadas de los clústeres que sí son robustos
+    robust_opinions = []
+    
+    for c_id in valid_clusters:
+        # Encontramos los nodos que pertenecen a este clúster específico
+        nodos_del_cluster = sorted_op[cluster_ids == c_id]
+        # Calculamos la opinión media exacta de este bando
+        cluster_mean = np.mean(nodos_del_cluster)
+        # Añadimos tantos puntos como nodos tenga el clúster para mantener el peso estadístico
+        robust_opinions.extend([cluster_mean] * len(nodos_del_cluster))
+        
+    # 4. Calcular la varianza de este nuevo sistema limpio y normalizar a [0, 1]
+    robust_var = np.var(robust_opinions)
+    
+    return float(robust_var / 0.25)
+
+def n_robust_clusters(opinions, tol=1e-3, min_size_pct=0.05):
+    """
+    Cuenta el número de clústeres significativos eliminando nodos disidentes aislados.
+    Si el sistema está masivamente fragmentado (como en epsilon cercano a 0), 
+    devuelve el número total de microclústeres reales.
+    """
+    n_nodes = len(opinions)
+    min_nodes_required = max(1, int(n_nodes * min_size_pct))
+    
+    # 1. Agrupar las opiniones que estén muy juntas
+    sorted_op = np.sort(opinions)
+    gaps = np.diff(sorted_op)
+    cluster_ids = np.zeros(n_nodes, dtype=int)
+    
+    current_cluster = 0
+    for i, gap in enumerate(gaps):
+        if gap >= tol:
+            current_cluster += 1
+        cluster_ids[i+1] = current_cluster
+        
+    # 2. Contar cuántos nodos tiene cada clúster
+    unique_clusters, counts = np.unique(cluster_ids, return_counts=True)
+    
+    # 3. FILTRADO INTELIGENTE
+    robust_clusters = 0
+    for count in counts:
+        if count >= min_nodes_required:
+            robust_clusters += 1
+            
+    # SI NO HAY NINGÚN CLÚSTER GRANDE: Significa que la sociedad está atomizada 
+    # (fragmentación total). Devolvemos el número real de microclústeres detectados.
+    if robust_clusters == 0:
+        return len(unique_clusters)
+        
+    return robust_clusters
 
 def n_clusters(opinions, tol=1e-3):
     """
